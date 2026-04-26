@@ -11,22 +11,14 @@ int empty(struct queue_t *q)
 
 void enqueue(struct queue_t *q, struct pcb_t *proc)
 {
-        /* TODO: put a new process to queue [q] */
-;
 }
 
 struct pcb_t *dequeue(struct queue_t *q)
 {
-        /* TODO: return a pcb whose prioprity is the highest
-         * in the queue [q] and remember to remove it from q
-         * */
 
-		return NULL;
 }
 
 struct pcb_t *purgequeue(struct queue_t *q, struct pcb_t *proc)
 {
-        /* TODO: remove a specific item from queue
-         * */
-        return NULL;
+    return NULL;
 }
