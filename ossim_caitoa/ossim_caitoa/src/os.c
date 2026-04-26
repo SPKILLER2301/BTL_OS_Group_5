@@ -116,19 +116,12 @@ static void * ld_routine(void * args) {
 	int i = 0;
   /* TODO init kernel page table directory */
 #ifdef MM64
-	os.krnl_pgd = malloc(PAGING64_MAX_PGN * sizeof(addr_t));
-	os.krnl_p4d = malloc(PAGING64_MAX_PGN * sizeof(addr_t));
-	os.krnl_pud = malloc(PAGING64_MAX_PGN * sizeof(addr_t));
-	os.krnl_pmd = malloc(PAGING64_MAX_PGN * sizeof(addr_t));
-	os.krnl_pt = malloc(PAGING64_MAX_PGN * sizeof(addr_t));
+	os.krnl_pgd = (addr_t *)calloc(512, sizeof(addr_t));
 
-	for (i = 0; i < PAGING64_MAX_PGN; i++)
-	{
-	   os.krnl_pgd[i] = (addr_t)&os.krnl_p4d;
-	   os.krnl_p4d[i] = (addr_t)&os.krnl_pud;
-	   os.krnl_pud[i] = (addr_t)&os.krnl_pmd;
-	   os.krnl_pmd[i] = (addr_t)&os.krnl_pt;
-	   os.krnl_pt[i] = 0;
+	os.krnl_p4d = NULL;
+	os.krnl_pud = NULL;
+	os.krnl_pmd = NULL;
+	os.krnl_pt  = NULL;
 	}
 #else
 	os.krnl_pgd = malloc(PAGING_MAX_PGN * sizeof(uint32_t));
@@ -296,6 +289,14 @@ int main(int argc, char * argv[]) {
 	/* Stop timer */
 	stop_timer();
 
+	free(cpu);
+	free(args);
+
+#ifdef MM_PAGING
+	free(mm_ld_args);
+#endif
+
+	printf("\n[OS] Simulation finished symbols clean up.\n");
 	return 0;
 
 }

@@ -331,14 +331,22 @@ int pg_setval(struct mm_struct *mm, int addr, BYTE value, struct pcb_t *caller)
  */
 int __read(struct pcb_t *caller, int vmaid, int rgid, addr_t offset, BYTE *data)
 {
+  pthread_mutex_lock(&mmvm_lock);
   struct vm_rg_struct *currg = get_symrg_byid(caller->krnl->mm, rgid);
 
 //struct vm_area_struct *cur_vma = get_vma_by_num(caller->krnl->mm, vmaid);
 
   /* TODO Invalid memory identify */
 
+  if (currg == NULL) // Invalid memory identify
+  {
+    pthread_mutex_unlock(&mmvm_lock);
+    return -1;
+  }
+
   pg_getval(caller->krnl->mm, currg->rg_start + offset, data, caller);
 
+  pthread_mutex_unlock(&mmvm_lock);
   return 0;
 }
 

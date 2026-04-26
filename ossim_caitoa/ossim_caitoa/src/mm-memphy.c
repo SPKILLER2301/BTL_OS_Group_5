@@ -19,6 +19,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+static pthread_mutex_t memphy_lock = PTHREAD_MUTEX_INITIALIZER;
+
 /*
  *  MEMPHY_mv_csr - move MEMPHY cursor
  *  @mp: memphy struct
@@ -152,11 +154,15 @@ int MEMPHY_format(struct memphy_struct *mp, int pagesz)
 
 int MEMPHY_get_freefp(struct memphy_struct *mp, addr_t *retfpn)
 {
+
+   pthread_mutex_lock(&memphy_lock); // lock before
+
    struct framephy_struct *fp = mp->free_fp_list;
 
-   if (fp == NULL)
+   if (fp == NULL){
+      pthread_mutex_unlock(&memphy_lock); // unlock when error
       return -1;
-
+}
    *retfpn = fp->fpn;
    mp->free_fp_list = fp->fp_next;
 
@@ -165,6 +171,7 @@ int MEMPHY_get_freefp(struct memphy_struct *mp, addr_t *retfpn)
     */
    free(fp);
 
+   pthread_mutex_unlock(&memphy_lock);
    return 0;
 }
 
@@ -184,6 +191,7 @@ int MEMPHY_dump(struct memphy_struct *mp)
 
 int MEMPHY_put_freefp(struct memphy_struct *mp, addr_t fpn)
 {
+   pthread_mutex_lock(&memphy_lock);
    struct framephy_struct *fp = mp->free_fp_list;
    struct framephy_struct *newnode = malloc(sizeof(struct framephy_struct));
 
@@ -192,6 +200,7 @@ int MEMPHY_put_freefp(struct memphy_struct *mp, addr_t fpn)
    newnode->fp_next = fp;
    mp->free_fp_list = newnode;
 
+   pthread_mutex_unlock(&memphy_lock);
    return 0;
 }
 

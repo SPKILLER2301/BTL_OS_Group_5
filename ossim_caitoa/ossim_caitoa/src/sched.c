@@ -25,13 +25,17 @@ static int slot[MAX_PRIO];
 #endif
 
 int queue_empty(void) {
+        pthread_mutex_lock(&queue_lock);
 #ifdef MLQ_SCHED
         unsigned long prio;
         for (prio = 0; prio < MAX_PRIO; prio++)
                 if (!empty(&mlq_ready_queue[prio]))
                         return -1;
 #endif
-        return (empty(&ready_queue) && empty(&run_queue));
+        int is_empty = (empty(&ready_queue) && empty(&run_queue));
+
+        pthread_mutex_unlock(&queue_lock);
+        return is_empty;;
 }
 
 void init_scheduler(void) {
