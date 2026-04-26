@@ -14,3 +14,6 @@
 
 0       listsyscall sys_listsyscall
 17      memmap	    sys_memmap
+20      kmalloc              sys_kmalloc
+21      kmem_cache_create    sys_kmem_cache_create
+22      kmem_cache_alloc     sys_kmem_cache_alloc
