@@ -96,7 +96,7 @@ static void * cpu_routine(void * args) {
 		}
 		
 		/* Run current process */
-		proc->krnl->mm = proc->mm; //ADDED FOR
+		//proc->krnl->mm = proc->mm; //ADDED FOR
 		run(proc);
 		time_left--;
 		next_slot(timer_id);
@@ -131,7 +131,9 @@ static void * ld_routine(void * args) {
 	printf("ld_routine\n");
 	while (i < num_processes) {
 		struct pcb_t * proc = load(ld_processes.path[i]);
-		struct krnl_t * krnl = proc->krnl = &os;	
+		struct krnl_t * krnl = malloc(sizeof(struct krnl_t));
+		*krnl = os;
+		proc->krnl = krnl;
 
 #ifdef MLQ_SCHED
 		proc->prio = ld_processes.prio[i];
@@ -140,9 +142,9 @@ static void * ld_routine(void * args) {
 			next_slot(timer_id);
 		}
 #ifdef MM_PAGING
-		proc->mm = malloc(sizeof(struct mm_struct));
-		init_mm(proc->mm, proc);
-		krnl->mm = proc->mm;
+		//proc->mm = malloc(sizeof(struct mm_struct));
+		//init_mm(proc->mm, proc);
+		//krnl->mm = proc->mm;
 		krnl->mram = mram;
 		krnl->mswp = mswp;
 		krnl->active_mswp = active_mswp;

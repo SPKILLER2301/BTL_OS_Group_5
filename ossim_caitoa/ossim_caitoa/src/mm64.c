@@ -17,7 +17,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <time.h>
-#include <stdlib.h>
+#include <pthread.h>
 
 #if defined(MM64)
 static pthread_mutex_t pgtbl_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -215,7 +215,7 @@ uint32_t pte_get_entry(struct pcb_t *caller, addr_t pgn)
 {
 pthread_mutex_lock(&pgtbl_lock);
 //struct krnl_t *krnl = caller->krnl;
-  uint32_t pte = 0;
+  //uint32_t pte = 0;
   addr_t pgd=0;
   addr_t p4d=0;
   addr_t pud=0;
@@ -626,7 +626,7 @@ int print_list_pgn(struct pgn_t *ip)
   return 0;
 }
 
-iint print_pgtbl(struct pcb_t *caller, addr_t start, addr_t end)
+int print_pgtbl(struct pcb_t *caller, addr_t start, addr_t end)
 {
     addr_t pgd_i, p4d_i, pud_i, pmd_i, pt_i;
     get_pd_from_address(start, &pgd_i, &p4d_i, &pud_i, &pmd_i, &pt_i);
