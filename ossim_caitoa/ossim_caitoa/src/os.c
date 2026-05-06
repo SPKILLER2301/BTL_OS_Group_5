@@ -122,7 +122,7 @@ static void * ld_routine(void * args) {
 	os.krnl_pud = NULL;
 	os.krnl_pmd = NULL;
 	os.krnl_pt  = NULL;
-	}
+
 #else
 	os.krnl_pgd = malloc(PAGING_MAX_PGN * sizeof(uint32_t));
 #endif

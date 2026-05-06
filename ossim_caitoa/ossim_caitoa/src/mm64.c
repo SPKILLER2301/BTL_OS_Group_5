@@ -303,7 +303,7 @@ int vmap_pgd_memset(struct pcb_t *caller,           // process call
 }
 
 /*
- * vmap_page_range - map a range of page at aligned address
+ * z_range - map a range of page at aligned address
  */
 addr_t vmap_page_range(struct pcb_t *caller,           // process call
                     addr_t addr,                       // start address which is aligned to pagesz
@@ -448,6 +448,8 @@ int init_mm(struct mm_struct *mm, struct pcb_t *caller)
   struct vm_area_struct *vma0 = malloc(sizeof(struct vm_area_struct));
 
   /* TODO init page table directory */
+  mm->pgd = (addr_t *)calloc(512, sizeof(addr_t));
+
   mm->p4d = NULL;
   mm->pud = NULL;
   mm->pmd = NULL;
