@@ -96,6 +96,7 @@ static void * cpu_routine(void * args) {
 		}
 		
 		/* Run current process */
+		proc->krnl->mm = proc->mm; //ADDED FOR
 		run(proc);
 		time_left--;
 		next_slot(timer_id);
@@ -139,11 +140,13 @@ static void * ld_routine(void * args) {
 			next_slot(timer_id);
 		}
 #ifdef MM_PAGING
-		krnl->mm = malloc(sizeof(struct mm_struct));
-		init_mm(krnl->mm, proc);
+		proc->mm = malloc(sizeof(struct mm_struct));
+		init_mm(proc->mm, proc);
+		krnl->mm = proc->mm;
 		krnl->mram = mram;
 		krnl->mswp = mswp;
 		krnl->active_mswp = active_mswp;
+		krnl->active_mswp_id = ((struct mmpaging_ld_args *)args)->active_mswp_id;
 #endif
 		printf("\tLoaded a process at %s, PID: %d PRIO: %ld\n",
 			ld_processes.path[i], proc->pid, ld_processes.prio[i]);
