@@ -101,6 +101,9 @@ int __alloc(struct pcb_t *caller, int vmaid, int rgid, addr_t size, addr_t *allo
 
   old_sbrk = cur_vma->sbrk;
 
+  /* TODO INCREASE THE LIMIT
+   * SYSCALL 1 sys_memmap
+   */
   struct sc_regs regs;
   regs.a1 = SYSMEM_INC_OP;
   regs.a2 = vmaid;
@@ -139,6 +142,7 @@ int __free(struct pcb_t *caller, int vmaid, int rgid)
     return -1;
   }
 
+  /* TODO: Manage the collect freed region to freerg_list */
   struct vm_rg_struct *rgnode = get_symrg_byid(caller->krnl->mm, rgid);
 
   if (rgnode->rg_start == 0 && rgnode->rg_end == 0)
@@ -175,7 +179,7 @@ int liballoc(struct pcb_t *proc, addr_t size, uint32_t reg_index)
     return -1;
   }
 #ifdef IODUMP
-  /* TODO dump IO content (if needed) */
+  printf("liballoc:%d\n", __LINE__-4);
 #ifdef PAGETBL_DUMP
   print_pgtbl(proc, 0, -1); // print max TBL
 #endif
@@ -198,14 +202,13 @@ int libfree(struct pcb_t *proc, uint32_t reg_index)
   {
     return -1;
   }
-printf("%s:%d\n",__func__,__LINE__);
 #ifdef IODUMP
-  /* TODO dump IO content (if needed) */
+  printf("libfree:%d\n", __LINE__-6);
 #ifdef PAGETBL_DUMP
   print_pgtbl(proc, 0, -1); // print max TBL
 #endif
 #endif
-  return 0;//val;
+  return 0;
 }
 
 /*pg_getpage - get the page in ram
@@ -223,47 +226,45 @@ int pg_getpage(struct mm_struct *mm, int pgn, int *fpn, struct pcb_t *caller)
   if (!PAGING_PAGE_PRESENT(pte))
   { /* Page is not online, make it actively living */
     addr_t vicpgn, swpfpn;
-    addr_t vicfpn;
-    uint32_t vicpte;
-    addr_t tgtfpn = 0;
-    struct sc_regs regs;
+    addr_t tgtfpn;
 
-    int is_swapped = (pte & PAGING_PTE_SWAPPED_MASK) ? 1 : 0;
-    addr_t target_swpfpn = 0;
-    if (is_swapped) {
-      target_swpfpn = PAGING_SWP(pte);
-    }
-
-    if (MEMPHY_get_freefp(caller->krnl->mram, &tgtfpn) != 0)
+    /* Find victim page via FIFO */
+    if (find_victim_page(caller->krnl->mm, &vicpgn) == -1)
     {
-      if (find_victim_page(caller->krnl->mm, &vicpgn) == -1)
-      {
-        return -1;
-      }
-
-      if (MEMPHY_get_freefp(caller->krnl->active_mswp, &swpfpn) == -1)
-      {
-        return -1;
-      }
-
-      vicpte = pte_get_entry(caller, vicpgn);
-      vicfpn = PAGING_FPN(vicpte);
-
-      regs.a1 = SYSMEM_SWP_OP;
-      regs.a2 = vicfpn;
-      regs.a3 = swpfpn;
-      _syscall(caller->krnl, caller->pid, 17, &regs);
-
-      pte_set_swap(caller, vicpgn, 0, swpfpn);
-
-      tgtfpn = vicfpn;
+      return -1;
     }
 
-    if (is_swapped) {
-      __swap_cp_page(caller->krnl->active_mswp, target_swpfpn, caller->krnl->mram, tgtfpn);
-      MEMPHY_put_freefp(caller->krnl->active_mswp, target_swpfpn);
+    /* Get free frame in MEMSWP */
+    if (MEMPHY_get_freefp(caller->krnl->active_mswp, &swpfpn) == -1)
+    {
+      return -1;
     }
 
+    /* Get the victim frame number from its PTE */
+    uint32_t vic_pte = pte_get_entry(caller, vicpgn);
+    tgtfpn = PAGING_FPN(vic_pte);
+
+    /* Swap victim frame out: MEMRAM -> MEMSWP */
+    struct sc_regs regs;
+    regs.a1 = SYSMEM_SWP_OP;
+    regs.a2 = tgtfpn;
+    regs.a3 = swpfpn;
+    _syscall(caller->krnl, caller->pid, 17, &regs);
+
+    /* Update victim page PTE to swapped state */
+    pte_set_swap(caller, vicpgn, 0, swpfpn);
+
+    /* The freed frame (tgtfpn) now holds our target page */
+    /* If pte is swapped, copy from swap to RAM */
+    if (PAGING_PAGE_PRESENT(pte) && (pte & PAGING_PTE_SWAPPED_MASK)) {
+      addr_t swp_off = PAGING_SWP(pte);
+      /* Copy from swap to the freed frame */
+      __swap_cp_page(caller->krnl->active_mswp, swp_off,
+                     caller->krnl->mram, tgtfpn);
+      MEMPHY_put_freefp(caller->krnl->active_mswp, swp_off);
+    }
+
+    /* Update PTE for target page: now in RAM at tgtfpn */
     pte_set_fpn(caller, pgn, tgtfpn);
 
     enlist_pgn_node(&caller->krnl->mm->fifo_pgn, pgn);
@@ -290,11 +291,14 @@ int pg_getval(struct mm_struct *mm, int addr, BYTE *data, struct pcb_t *caller)
     return -1; /* invalid page access */
 
   int phyaddr = (fpn << PAGING_ADDR_FPN_LOBIT) + off;
+
+  /* Read via SYSCALL MEMIO */
   struct sc_regs regs;
   regs.a1 = SYSMEM_IO_READ;
   regs.a2 = phyaddr;
+  regs.a3 = 0;
   _syscall(caller->krnl, caller->pid, 17, &regs);
-  *data = regs.a3;
+  *data = (BYTE)regs.a3;
 
   return 0;
 }
@@ -311,10 +315,13 @@ int pg_setval(struct mm_struct *mm, int addr, BYTE value, struct pcb_t *caller)
   int off = PAGING_OFFST(addr);
   int fpn;
 
+  /* Get the page to MEMRAM, swap from MEMSWAP if needed */
   if (pg_getpage(mm, pgn, &fpn, caller) != 0)
-    return -1;
+    return -1; /* invalid page access */
 
   int phyaddr = (fpn << PAGING_ADDR_FPN_LOBIT) + off;
+
+  /* Write via SYSCALL MEMIO */
   struct sc_regs regs;
   regs.a1 = SYSMEM_IO_WRITE;
   regs.a2 = phyaddr;
@@ -335,10 +342,10 @@ int pg_setval(struct mm_struct *mm, int addr, BYTE value, struct pcb_t *caller)
 int __read(struct pcb_t *caller, int vmaid, int rgid, addr_t offset, BYTE *data)
 {
   struct vm_rg_struct *currg = get_symrg_byid(caller->krnl->mm, rgid);
-  struct vm_area_struct *cur_vma = get_vma_by_num(caller->krnl->mm, vmaid);
 
-  if (currg == NULL || cur_vma == NULL || currg->rg_start == 0)
-    return -1;
+//struct vm_area_struct *cur_vma = get_vma_by_num(caller->krnl->mm, vmaid);
+
+  /* TODO Invalid memory identify */
 
   pg_getval(caller->krnl->mm, currg->rg_start + offset, data, caller);
 
@@ -353,12 +360,11 @@ int libread(
     uint32_t* destination)
 {
   BYTE data;
-printf("%s:%d\n",__func__,__LINE__);
   int val = __read(proc, 0, source, offset, &data);
 
   *destination = data;
 #ifdef IODUMP
-  /* TODO dump IO content (if needed) */
+  printf("libread:%d\n", __LINE__-5);
 #ifdef PAGETBL_DUMP
   print_pgtbl(proc, 0, -1); // print max TBL
 #endif
@@ -407,7 +413,7 @@ int libwrite(
     return -1;
   }
 #ifdef IODUMP
-  /* TODO dump IO content (if needed) */
+  printf("libwrite:%d\n", __LINE__+86);
 #ifdef PAGETBL_DUMP
   print_pgtbl(proc, 0, -1); // print max TBL
 #endif
@@ -647,25 +653,19 @@ int find_victim_page(struct mm_struct *mm, addr_t *retpgn)
 {
   struct pgn_t *pg = mm->fifo_pgn;
 
+  /* TODO: Implement the theorical mechanism to find the victim page */
   if (!pg)
   {
     return -1;
   }
-  
   struct pgn_t *prev = NULL;
   while (pg->pg_next)
   {
     prev = pg;
     pg = pg->pg_next;
   }
-  
   *retpgn = pg->pgn;
-  
-  if (prev == NULL) {
-    mm->fifo_pgn = NULL; 
-  } else {
-    prev->pg_next = NULL;
-  }
+  prev->pg_next = NULL;
 
   free(pg);
 

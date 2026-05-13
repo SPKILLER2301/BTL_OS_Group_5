@@ -18,7 +18,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
+#ifdef MM64
+#include "mm64.h"
+#endif
 /*
  *  MEMPHY_mv_csr - move MEMPHY cursor
  *  @mp: memphy struct
@@ -134,15 +136,25 @@ int MEMPHY_format(struct memphy_struct *mp, int pagesz)
 
    /* Init head of free framephy list */
    fst = malloc(sizeof(struct framephy_struct));
+   if (fst == NULL)
+      return -1;
+
    fst->fpn = iter;
+   fst->fp_next = NULL;
+   fst->owner = NULL;
    mp->free_fp_list = fst;
 
    /* We have list with first element, fill in the rest num-1 element member*/
    for (iter = 1; iter < numfp; iter++)
    {
       newfst = malloc(sizeof(struct framephy_struct));
+      if (newfst == NULL)
+         return -1;
+
       newfst->fpn = iter;
       newfst->fp_next = NULL;
+      newfst->owner = NULL;
+
       fst->fp_next = newfst;
       fst = newfst;
    }
@@ -170,16 +182,10 @@ int MEMPHY_get_freefp(struct memphy_struct *mp, addr_t *retfpn)
 
 int MEMPHY_dump(struct memphy_struct *mp)
 {
-    if (mp == NULL || mp->storage == NULL)
-      return -1;
-    for (int i = 0; i < mp->maxsz; i++)
-    {
-      if (mp->storage[i] != 0)
-      {
-         printf("Addr [%08x]: %02x\n", i, (unsigned char)mp->storage[i]);
-      }
-    }
-    return 0;
+  /*TODO dump memphy contnt mp->storage
+   *     for tracing the memory content
+   */
+   return 0;
 }
 
 int MEMPHY_put_freefp(struct memphy_struct *mp, addr_t fpn)
@@ -200,64 +206,31 @@ int MEMPHY_put_freefp(struct memphy_struct *mp, addr_t fpn)
  */
 int init_memphy(struct memphy_struct *mp, addr_t max_size, int randomflg)
 {
-   mp->storage = (BYTE *)malloc(max_size * sizeof(BYTE));
+   if (mp == NULL)
+      return -1;
+
+   mp->storage = NULL;
    mp->maxsz = max_size;
+   mp->rdmflg = (randomflg != 0) ? 1 : 0;
+   mp->cursor = 0;
+   mp->free_fp_list = NULL;
+   mp->used_fp_list = NULL;
+
+   if (max_size == 0)
+      return 0;
+
+   mp->storage = (BYTE *)malloc(max_size * sizeof(BYTE));
+   if (mp->storage == NULL)
+      return -1;
+
    memset(mp->storage, 0, max_size * sizeof(BYTE));
 
+#ifdef MM64
+   MEMPHY_format(mp, PAGING64_PAGESZ);
+#else
    MEMPHY_format(mp, PAGING_PAGESZ);
+#endif
 
-   mp->rdmflg = (randomflg != 0) ? 1 : 0;
-
-   if (!mp->rdmflg) /* Not Ramdom acess device, then it serial device*/
-      mp->cursor = 0;
-
-   return 0;
-}
-
-int MEMPHY_get_contiguous_freefp(struct memphy_struct *mp, int num_frames, addr_t *retfpn) {
-   if (mp == NULL || num_frames <= 0) return -1;
-
-   int max_frames = mp->maxsz / PAGING_PAGESZ; 
-   int *frame_status = (int*)calloc(max_frames, sizeof(int));
-
-   struct framephy_struct *curr = mp->free_fp_list;
-   while (curr != NULL) {
-      if (curr->fpn < max_frames) frame_status[curr->fpn] = 1;
-      curr = curr->fp_next;
-   }
-
-   int start_frame = -1;
-   int count = 0;
-   for (int i = 0; i < max_frames; i++) {
-      if (frame_status[i] == 1) {
-         if (count == 0) start_frame = i;
-         count++;
-         if (count == num_frames) break;
-      } else {
-         count = 0;
-      }
-   }
-
-   free(frame_status);
-   if (count < num_frames) return -1;
-
-   struct framephy_struct *prev = NULL;
-   curr = mp->free_fp_list;
-   while (curr != NULL) {
-      if (curr->fpn >= start_frame && curr->fpn < start_frame + num_frames) {
-         if (prev == NULL) mp->free_fp_list = curr->fp_next;
-         else prev->fp_next = curr->fp_next;
-         
-         struct framephy_struct *temp = curr;
-         curr = curr->fp_next;
-         free(temp);
-      } else {
-         prev = curr;
-         curr = curr->fp_next;
-      }
-   }
-
-   *retfpn = start_frame;
    return 0;
 }
 

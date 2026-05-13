@@ -70,6 +70,10 @@ int init_pte(addr_t *pte,
  */
 int get_pd_from_address(addr_t addr, addr_t* pgd, addr_t* p4d, addr_t* pud, addr_t* pmd, addr_t* pt)
 {
+  unsigned long high_bits = (addr >> 57);
+  if (high_bits != 0 && high_bits != 0x7F) {
+    return -1; // Địa chỉ không hợp lệ
+  }
 	/* Extract page direactories */
 	*pgd = (addr&PAGING64_ADDR_PGD_MASK)>>PAGING64_ADDR_PGD_LOBIT;
 	*p4d = (addr&PAGING64_ADDR_P4D_MASK)>>PAGING64_ADDR_P4D_LOBIT;
@@ -355,6 +359,7 @@ addr_t vmap_page_range(struct pcb_t *caller,           // process call
   */
   ret_rg->rg_start = addr;
   ret_rg->rg_end = addr + pgnum * PAGING64_PAGESZ;
+  ret_rg->vmaid = 0;
 
   /* TODO map range of frame to address space
    *      [addr to addr + pgnum*PAGING_PAGESZ
@@ -504,12 +509,15 @@ int init_mm(struct mm_struct *mm, struct pcb_t *caller)
   mm->pmd = NULL;
   mm->pt = NULL;
 
+  mm->fifo_pgn = NULL;
 
   /* By default the owner comes with at least one vma */
   vma0->vm_id = 0;
   vma0->vm_start = 0;
   vma0->vm_end = vma0->vm_start;
   vma0->sbrk = vma0->vm_start;
+
+  vma0->vm_freerg_list = NULL;
   struct vm_rg_struct *first_rg = init_vm_rg(vma0->vm_start, vma0->vm_end);
   enlist_vm_rg_node(&vma0->vm_freerg_list, first_rg);
 
