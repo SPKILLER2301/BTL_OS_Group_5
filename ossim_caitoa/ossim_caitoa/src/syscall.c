@@ -11,6 +11,11 @@
 #include "syscall.h"
 #include "common.h"
 
+#include <stdlib.h>
+#include "queue.h"
+#include "mm.h"
+#include "os-mm.h"
+
 #define __SYSCALL(nr, sym) extern int __##sym(struct krnl_t*, uint32_t,struct sc_regs*);
 #include "syscalltbl.lst"
 #undef  __SYSCALL
@@ -61,8 +66,8 @@ static struct pcb_t* get_pcb_by_pid(struct krnl_t *krnl, uint32_t pid) {
 }
 
 int __sys_kmalloc(struct krnl_t *krnl, uint32_t pid, struct sc_regs *regs) {
-    int size = regs->regs[0];
-    int reg_idx = regs->regs[1];
+    int size = regs->a1;
+    int reg_idx = regs->a2;
     int num_frames = (size + PAGING_PAGESZ - 1) / PAGING_PAGESZ;
     addr_t fpn;
     
@@ -76,9 +81,9 @@ int __sys_kmalloc(struct krnl_t *krnl, uint32_t pid, struct sc_regs *regs) {
 }
 
 int __sys_kmem_cache_create(struct krnl_t *krnl, uint32_t pid, struct sc_regs *regs) {
-    int size = regs->regs[0];
-    int align = regs->regs[1];
-    int pool_id = regs->regs[2];
+    int size = regs->a1;
+    int align = regs->a2;
+    int pool_id = regs->a3;
     int capacity = 10;
     int total_bytes = (size + align) * capacity;
     int num_frames = (total_bytes + PAGING_PAGESZ - 1) / PAGING_PAGESZ;
@@ -95,8 +100,8 @@ int __sys_kmem_cache_create(struct krnl_t *krnl, uint32_t pid, struct sc_regs *r
         
         struct pcb_t *caller = get_pcb_by_pid(krnl, pid);
         if (caller && caller->mm) {
-            new_pool->next = caller->mm->kcpooltbl;
-            caller->mm->kcpooltbl = new_pool;
+            new_pool->next = caller->krnl->mm->kcpooltbl;
+            caller->krnl->mm->kcpooltbl = new_pool;
         }
         return 0;
     }
@@ -104,11 +109,11 @@ int __sys_kmem_cache_create(struct krnl_t *krnl, uint32_t pid, struct sc_regs *r
 }
 
 int __sys_kmem_cache_alloc(struct krnl_t *krnl, uint32_t pid, struct sc_regs *regs) {
-    int reg_idx = regs->regs[0];
-    int pool_id = regs->regs[1];
+    int reg_idx = regs->a1;
+    int pool_id = regs->a2;
     struct pcb_t *caller = get_pcb_by_pid(krnl, pid);
     
-    if (!caller || !caller->mm) return -1;
+    if (!caller || !caller->krnl->mm) return -1;
     
     struct kcache_pool_struct *pool = caller->mm->kcpooltbl;
     while (pool != NULL) {
