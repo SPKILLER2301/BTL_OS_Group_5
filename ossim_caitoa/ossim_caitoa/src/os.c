@@ -145,6 +145,8 @@ static void * ld_routine(void * args) {
 		//proc->mm = malloc(sizeof(struct mm_struct));
 		//init_mm(proc->mm, proc);
 		//krnl->mm = proc->mm;
+		krnl->mm = malloc(sizeof(struct mm_struct));
+		init_mm(krnl->mm, proc);
 		krnl->mram = mram;
 		krnl->mswp = mswp;
 		krnl->active_mswp = active_mswp;
