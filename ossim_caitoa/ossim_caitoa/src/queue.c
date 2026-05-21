@@ -28,18 +28,25 @@ struct pcb_t *dequeue(struct queue_t *q)
                 return NULL;
 
         /* Find index of highest-priority process (smallest prio value) */
-        int best_idx = 0;
-        int i;
-        for (i = 1; i < q->size; i++) {
-                if (q->proc[i]->prio < q->proc[best_idx]->prio)
-                        best_idx = i;
-        }
+//        int best_idx = 0;
+//        int i;
+//        for (i = 1; i < q->size; i++) {
+//                if (q->proc[i]->prio < q->proc[best_idx]->prio)
+//                        best_idx = i;
+//        }
+//
+//        struct pcb_t *proc = q->proc[best_idx];
+//
+//        /* Remove the chosen process by shifting remaining elements */
+//        for (i = best_idx; i < q->size - 1; i++)
+//                q->proc[i] = q->proc[i + 1];
+//        q->size--;
+         // CHANGE FROM SMALLEST PRIO TO FIFO
+        struct pcb_t *proc = q->proc[0];
 
-        struct pcb_t *proc = q->proc[best_idx];
-
-        /* Remove the chosen process by shifting remaining elements */
-        for (i = best_idx; i < q->size - 1; i++)
+        for (int i = 0; i < q->size - 1; i++)
                 q->proc[i] = q->proc[i + 1];
+
         q->size--;
 
         return proc;

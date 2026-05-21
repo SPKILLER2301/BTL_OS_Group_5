@@ -119,6 +119,7 @@ static void * cpu_routine(void * args) {
 			/* The porcess has finish it job */
 			printf("\tCPU %d: Processed %2d has finished\n",
 				id ,proc->pid);
+			finish_proc(proc);
 			free_proc(proc);
 			proc = get_proc();
 			time_left = 0;
@@ -151,7 +152,29 @@ static void * cpu_routine(void * args) {
 		
 		/* Run current process */
 		//proc->krnl->mm = proc->mm; //ADDED FOR
+		//run(proc);
+		//time_left--;
+		//next_slot(timer_id);
+		uint32_t old_pc = proc->pc;
+
 		run(proc);
+
+#ifdef PAGETBL_DUMP
+#ifdef MM_PAGING
+		if (old_pc < proc->code->size) {
+			enum ins_opcode_t op = proc->code->text[old_pc].opcode;
+
+			if (op == ALLOC) {
+				printf("\nprint_pgtbl: PID=%d after ALLOC at PC=%u\n",
+					   proc->pid, old_pc);
+
+				print_pgtbl(proc, 0, 0);
+				printf("\n");
+			}
+		}
+#endif
+#endif
+
 		time_left--;
 		next_slot(timer_id);
 	}
@@ -280,8 +303,8 @@ static void read_config(const char * path) {
 	 * for legacy info 
          *  [time slice] [N = Number of CPU] [M = Number of Processes to be run]
          */
-        memramsz  =  0x100000000;
-        memswpsz[0] = 0x1000000;
+	memramsz  =  0x00400000;   // 4MB RAM
+	memswpsz[0] = 0x00400000;  // 4MB SWAP
 	for(sit = 1; sit < PAGING_MAX_MMSWP; sit++)
 		memswpsz[sit] = 0;
 #else
@@ -328,6 +351,11 @@ static void read_config(const char * path) {
 #ifdef MLQ_SCHED
 	ld_processes.prio = (unsigned long*)
 		malloc(sizeof(unsigned long) * num_processes);
+	if (!ld_processes.prio) {
+		fprintf(stderr, "Failed to allocate priorities\n");
+		fclose(file);
+		exit(1);
+	}
 #endif
 	int i;
 	for (i = 0; i < num_processes; i++) {
@@ -446,9 +474,15 @@ int main(int argc, char * argv[]) {
 
 	/* Run CPU and loader */
 #ifdef MM_PAGING
-	pthread_create(&ld, NULL, ld_routine, (void*)mm_ld_args);
+	if (pthread_create(&ld, NULL, ld_routine, (void*)mm_ld_args) != 0) {
+		perror("pthread_create loader");
+		return 1;
+	}
 #else
-	pthread_create(&ld, NULL, ld_routine, (void*)ld_event);
+	if (pthread_create(&ld, NULL, ld_routine, (void*)ld_event) != 0) {
+		perror("pthread_create loader");
+		return 1;
+	}
 #endif
 	for (i = 0; i < num_cpus; i++) {
 		pthread_create(&cpu[i], NULL,

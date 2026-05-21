@@ -49,7 +49,12 @@ static enum ins_opcode_t get_opcode(char * opt) {
 
 struct pcb_t * load(const char * path) {
 	/* Create new PCB for the new process */
-	struct pcb_t * proc = (struct pcb_t * )malloc(sizeof(struct pcb_t));
+	struct pcb_t * proc = malloc(sizeof(struct pcb_t));
+	if (proc == NULL) {
+		fprintf(stderr, "Cannot allocate PCB\n");
+		exit(1);
+	}
+	memset(proc, 0, sizeof(struct pcb_t));
 	proc->pid = avail_pid;
 	avail_pid++;
 	proc->page_table =
@@ -120,6 +125,7 @@ struct pcb_t * load(const char * path) {
 			exit(1);
 		}
 	}
+	fclose(file);
 	return proc;
 }
 

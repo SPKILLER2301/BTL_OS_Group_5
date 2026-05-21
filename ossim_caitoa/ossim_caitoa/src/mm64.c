@@ -195,6 +195,16 @@ pthread_mutex_lock(&pgtbl_lock);
   addr_t *pt_table = (addr_t *)pmd_table[pmd];
 
   pte = &pt_table[pt];
+  // DEBUG
+  //printf("[pte_set_fpn] PID=%d pgn=%lu fpn=%lu PGD=%lu P4D=%lu PUD=%lu PMD=%lu PT=%lu\n",
+  //       caller->pid,
+  //       (unsigned long)pgn,
+  //       (unsigned long)fpn,
+  //       (unsigned long)pgd,
+  //       (unsigned long)p4d,
+  //       (unsigned long)pud,
+  //       (unsigned long)pmd,
+  //       (unsigned long)pt);
 
 #else
   pte = &krnl->mm->pgd[pgn];
@@ -389,41 +399,51 @@ addr_t vmap_page_range(struct pcb_t *caller,           // process call
 
 addr_t alloc_pages_range(struct pcb_t *caller, int req_pgnum, struct framephy_struct **frm_lst)
 {
-  addr_t fpn;
-  int pgit;
-  struct framephy_struct *newfp = NULL;
+  if (caller == NULL || caller->krnl == NULL || caller->krnl->mram == NULL ||
+      frm_lst == NULL || req_pgnum <= 0)
+    return -1;
 
-  /* TODO: allocate the page 
-  //caller-> ...
-  //frm_lst-> ...
-  */
+  *frm_lst = NULL;
+  struct framephy_struct *tail = NULL;
 
+  for (int pgit = 0; pgit < req_pgnum; pgit++) {
+    addr_t fpn;
+  if (MEMPHY_get_freefp(caller->krnl->mram, &fpn) != 0) {
+      while (*frm_lst != NULL) {
+        struct framephy_struct *tmp = *frm_lst;
+        *frm_lst = tmp->fp_next;
+        MEMPHY_put_freefp(caller->krnl->mram, tmp->fpn);
+        free(tmp);
+      }
 
-/*
-  for (pgit = 0; pgit < req_pgnum; pgit++)
-  {
-    // TODO: allocate the page 
-    if (MEMPHY_get_freefp(caller->mram, &fpn) == 0)
-    {
-      newfp_str->fpn = fpn;
+      return -3000;
     }
+
+    struct framephy_struct *newfp = malloc(sizeof(struct framephy_struct));
+    if (newfp == NULL) {
+      MEMPHY_put_freefp(caller->krnl->mram, fpn);
+
+      while (*frm_lst != NULL) {
+        struct framephy_struct *tmp = *frm_lst;
+        *frm_lst = tmp->fp_next;
+        MEMPHY_put_freefp(caller->krnl->mram, tmp->fpn);
+        free(tmp);
+      }
+
+      return -1;
+    }
+
+    newfp->fpn = fpn;
+    newfp->fp_next = NULL;
+    newfp->owner = caller->krnl->mm;
+
+    if (*frm_lst == NULL)
+      *frm_lst = newfp;
     else
-    { // TODO: ERROR CODE of obtaining somes but not enough frames
-    }
+      tail->fp_next = newfp;
+
+    tail = newfp;
   }
-*/
-for (pgit = 0; pgit < req_pgnum; pgit++) {
-        if (MEMPHY_get_freefp(caller->krnl->mram, &fpn) != 0)
-            return -3000; /* out of RAM — caller handles swap */
-
-        newfp = malloc(sizeof(struct framephy_struct));
-        newfp->fpn    = fpn;
-        newfp->fp_next = *frm_lst;
-        *frm_lst = newfp;
-    }
-
-
-  /* End TODO */
 
   return 0;
 }
@@ -439,10 +459,17 @@ for (pgit = 0; pgit < req_pgnum; pgit++) {
  */
 addr_t vm_map_ram(struct pcb_t *caller, addr_t astart, addr_t aend, addr_t mapstart, int incpgnum, struct vm_rg_struct *ret_rg)
 {
-  struct framephy_struct *frm_lst = NULL;
-  addr_t ret_alloc = 0;
-  int pgnum = incpgnum;
+  (void)astart;
+  (void)aend;
 
+  if (caller == NULL || ret_rg == NULL || incpgnum <= 0)
+    return -1;
+
+  struct framephy_struct *frm_lst = NULL;
+  addr_t ret_alloc = alloc_pages_range(caller, incpgnum, &frm_lst);
+
+  if (ret_alloc != 0)
+    return -1;
   /*@bksysnet: author provides a feasible solution of getting frames
    *FATAL logic in here, wrong behaviour if we have not enough page
    *i.e. we request 1000 frames meanwhile our RAM has size of 3 frames
@@ -450,8 +477,17 @@ addr_t vm_map_ram(struct pcb_t *caller, addr_t astart, addr_t aend, addr_t mapst
    *in endless procedure of swap-off to get frame and we have not provide
    *duplicate control mechanism, keep it simple
    */
-   ret_alloc = alloc_pages_range(caller, pgnum, &frm_lst);
 
+  if (vmap_page_range(caller, mapstart, incpgnum, frm_lst, ret_rg) != 0) {
+    while (frm_lst != NULL) {
+      struct framephy_struct *tmp = frm_lst;
+      frm_lst = frm_lst->fp_next;
+      MEMPHY_put_freefp(caller->krnl->mram, tmp->fpn);
+      free(tmp);
+    }
+
+    return -1;
+  }
   if (ret_alloc < 0 && ret_alloc != -3000)
     return -1;
 
@@ -461,9 +497,17 @@ addr_t vm_map_ram(struct pcb_t *caller, addr_t astart, addr_t aend, addr_t mapst
     return -1;
   }
 
+ /* vmap_page_range consumes only the frame numbers; free list nodes. */
+  while (frm_lst != NULL) {
+    struct framephy_struct *tmp = frm_lst;
+    frm_lst = frm_lst->fp_next;
+    free(tmp);
+  }
+
+
   /* it leaves the case of memory is enough but half in ram, half in swap
    * do the swaping all to swapper to get the all in ram */
-   vmap_page_range(caller, mapstart, incpgnum, frm_lst, ret_rg);
+   //vmap_page_range(caller, mapstart, incpgnum, frm_lst, ret_rg);
 
   return 0;
 }
@@ -477,19 +521,27 @@ addr_t vm_map_ram(struct pcb_t *caller, addr_t astart, addr_t aend, addr_t mapst
 int __swap_cp_page(struct memphy_struct *mpsrc, addr_t srcfpn,
                    struct memphy_struct *mpdst, addr_t dstfpn)
 {
-  int cellidx;
-  addr_t addrsrc, addrdst;
-  for (cellidx = 0; cellidx < PAGING_PAGESZ; cellidx++)
-  {
-    addrsrc = srcfpn * PAGING_PAGESZ + cellidx;
-    addrdst = dstfpn * PAGING_PAGESZ + cellidx;
+    if (!mpsrc || !mpdst)
+        return -1;
 
-    BYTE data;
-    MEMPHY_read(mpsrc, addrsrc, &data);
-    MEMPHY_write(mpdst, addrdst, data);
-  }
+#ifdef MM64
+    addr_t pagesz = PAGING64_PAGESZ;
+#else
+    addr_t pagesz = PAGING_PAGESZ;
+#endif
 
-  return 0;
+    for (addr_t i = 0; i < pagesz; i++) {
+        BYTE value;
+        addr_t srcaddr = srcfpn * pagesz + i;
+        addr_t dstaddr = dstfpn * pagesz + i;
+
+        if (MEMPHY_read(mpsrc, srcaddr, &value) != 0)
+            return -1;
+        if (MEMPHY_write(mpdst, dstaddr, value) != 0)
+            return -1;
+    }
+
+    return 0;
 }
 
 /*
@@ -499,10 +551,19 @@ int __swap_cp_page(struct memphy_struct *mpsrc, addr_t srcfpn,
  */
 int init_mm(struct mm_struct *mm, struct pcb_t *caller)
 {
-  struct vm_area_struct *vma0 = malloc(sizeof(struct vm_area_struct));
+  (void)caller;
+  if (mm == NULL)
+    return -1;
 
+  struct vm_area_struct *vma0 = malloc(sizeof(struct vm_area_struct));
+  if (!vma0) return -1;
   /* TODO init page table directory */
   mm->pgd = (addr_t *)calloc(512, sizeof(addr_t));
+
+  if (!mm->pgd) {
+    free(vma0);
+    return -1;
+  }
 
   mm->p4d = NULL;
   mm->pud = NULL;
@@ -514,9 +575,9 @@ int init_mm(struct mm_struct *mm, struct pcb_t *caller)
   /* By default the owner comes with at least one vma */
   vma0->vm_id = 0;
   vma0->vm_start = 0;
-  vma0->vm_end = vma0->vm_start;
-  vma0->sbrk = vma0->vm_start;
-
+  vma0->vm_end = 0;
+  vma0->sbrk = 0;
+  vma0->vm_mm = mm;
   vma0->vm_freerg_list = NULL;
   struct vm_rg_struct *first_rg = init_vm_rg(vma0->vm_start, vma0->vm_end);
   enlist_vm_rg_node(&vma0->vm_freerg_list, first_rg);
@@ -545,7 +606,10 @@ int init_mm(struct mm_struct *mm, struct pcb_t *caller)
 struct vm_rg_struct *init_vm_rg(addr_t rg_start, addr_t rg_end)
 {
   struct vm_rg_struct *rgnode = malloc(sizeof(struct vm_rg_struct));
+  if (rgnode == NULL)
+    return NULL;
 
+  rgnode->vmaid = 0;
   rgnode->rg_start = rg_start;
   rgnode->rg_end = rg_end;
   rgnode->rg_next = NULL;
@@ -555,6 +619,9 @@ struct vm_rg_struct *init_vm_rg(addr_t rg_start, addr_t rg_end)
 
 int enlist_vm_rg_node(struct vm_rg_struct **rglist, struct vm_rg_struct *rgnode)
 {
+  if (rglist == NULL || rgnode == NULL)
+    return -1;
+
   rgnode->rg_next = *rglist;
   *rglist = rgnode;
 
@@ -563,7 +630,12 @@ int enlist_vm_rg_node(struct vm_rg_struct **rglist, struct vm_rg_struct *rgnode)
 
 int enlist_pgn_node(struct pgn_t **plist, addr_t pgn)
 {
+  if (plist == NULL)
+    return -1;
+
   struct pgn_t *pnode = malloc(sizeof(struct pgn_t));
+  if (pnode == NULL)
+    return -1;
 
   pnode->pgn = pgn;
   pnode->pg_next = *plist;
@@ -630,7 +702,7 @@ int print_list_pgn(struct pgn_t *ip)
     printf("va[" FORMAT_ADDR "]-\n", ip->pgn);
     ip = ip->pg_next;
   }
-  printf("n");
+  printf("\n");
   return 0;
 }
 

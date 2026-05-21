@@ -37,15 +37,12 @@ int read(
 { // Index of destination register
 
 	BYTE data;
-	if (read_mem(proc->regs[source] + offset, proc, &data))
+	if (read_mem(proc->regs[source] + offset, proc, &data) == 0)
 	{
 		proc->regs[destination] = data;
 		return 0;
 	}
-	else
-	{
-		return 1;
-	}
+	return 1;
 }
 
 int write(
@@ -108,7 +105,8 @@ switch (ins.opcode)
 		break;
 	case READ:
 #ifdef MM_PAGING
-		stat = libread(proc, ins.arg_0, ins.arg_1, (uint32_t*) &ins.arg_2);
+		/* ins.arg_2 is destination register index; write into proc->regs[dest], not into the temporary instruction copy. */
+		stat = libread(proc, ins.arg_0, ins.arg_1, (uint32_t*) &proc->regs[ins.arg_2]);
 #else
 		stat = read(proc, ins.arg_0, ins.arg_1, ins.arg_2);
 #endif

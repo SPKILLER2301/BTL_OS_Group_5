@@ -23,8 +23,11 @@
 
 int __sys_memmap(struct krnl_t *krnl, uint32_t pid, struct sc_regs* regs)
 {
+   if (krnl == NULL || regs == NULL)
+        return -1;
    int memop = regs->a1;
    BYTE value;
+   int ret = 0;
 
    /*
     * Kernel-space: access PCB by traversing running_list with PID.
@@ -43,38 +46,41 @@ int __sys_memmap(struct krnl_t *krnl, uint32_t pid, struct sc_regs* regs)
    }
 
    /* If not found in running_list, build a minimal stub */
-   int allocated = 0;
-   if (caller == NULL) {
-      caller = malloc(sizeof(struct pcb_t));
-      caller->krnl  = krnl;
-      caller->pid   = pid;
-      allocated = 1;
-   }
+   //int allocated = 0;
+    if (caller == NULL &&
+     (memop == SYSMEM_INC_OP || memop == SYSMEM_MAP_OP || memop == SYSMEM_SWP_OP)) {
+        fprintf(stderr, "sys_memmap: cannot find running process with PID=%u\n", pid);
+        return -1;
+     }
 
-   switch (memop) {
-   case SYSMEM_MAP_OP:
-            vmap_pgd_memset(caller, regs->a2, regs->a3);
+    switch (memop) {
+        case SYSMEM_MAP_OP:
+            ret = vmap_pgd_memset(caller, regs->a2, regs->a3);
             break;
-   case SYSMEM_INC_OP:
-            inc_vma_limit(caller, regs->a2, regs->a3);
+
+        case SYSMEM_INC_OP:
+            ret = inc_vma_limit(caller, regs->a2, regs->a3);
             break;
-   case SYSMEM_SWP_OP:
-            __mm_swap_page(caller, regs->a2, regs->a3);
+
+        case SYSMEM_SWP_OP:
+            ret = __mm_swap_page(caller, regs->a2, regs->a3);
             break;
-   case SYSMEM_IO_READ:
-            MEMPHY_read(krnl->mram, regs->a2, &value);
-            regs->a3 = value;
+
+        case SYSMEM_IO_READ:
+            ret = MEMPHY_read(krnl->mram, regs->a2, &value);
+            if (ret == 0)
+                regs->a3 = value;
             break;
-   case SYSMEM_IO_WRITE:
-            MEMPHY_write(krnl->mram, regs->a2, (BYTE)regs->a3);
+
+        case SYSMEM_IO_WRITE:
+            ret = MEMPHY_write(krnl->mram, regs->a2, (BYTE)regs->a3);
             break;
-   default:
+
+        default:
             printf("Memop code: %d\n", memop);
-            break;
-   }
+            return -1;
+    }
 
-   if (allocated)
-      free(caller);
 
-   return 0;
+   return ret;
 }

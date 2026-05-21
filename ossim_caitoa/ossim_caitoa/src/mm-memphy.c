@@ -49,11 +49,14 @@ int MEMPHY_mv_csr(struct memphy_struct *mp, addr_t offset)
  */
 int MEMPHY_seq_read(struct memphy_struct *mp, addr_t addr, BYTE *value)
 {
-   if (mp == NULL)
+   if (mp == NULL || value == NULL || mp->storage == NULL)
       return -1;
 
-   if (!mp->rdmflg)
+   if (mp->rdmflg)
       return -1; /* Not compatible mode for sequential read */
+
+   if (addr >= mp->maxsz)
+      return -1;
 
    MEMPHY_mv_csr(mp, addr);
    *value = (BYTE)mp->storage[addr];
@@ -69,7 +72,10 @@ int MEMPHY_seq_read(struct memphy_struct *mp, addr_t addr, BYTE *value)
  */
 int MEMPHY_read(struct memphy_struct *mp, addr_t addr, BYTE *value)
 {
-   if (mp == NULL)
+   if (mp == NULL || value == NULL || mp->storage == NULL)
+      return -1;
+
+   if (addr >= mp->maxsz)
       return -1;
 
    if (mp->rdmflg)
@@ -88,12 +94,14 @@ int MEMPHY_read(struct memphy_struct *mp, addr_t addr, BYTE *value)
  */
 int MEMPHY_seq_write(struct memphy_struct *mp, addr_t addr, BYTE value)
 {
-
-   if (mp == NULL)
+   if (mp == NULL || mp->storage == NULL)
       return -1;
 
-   if (!mp->rdmflg)
-      return -1; /* Not compatible mode for sequential read */
+   if (mp->rdmflg)
+      return -1; /* Not compatible mode for sequential write */
+
+   if (addr >= mp->maxsz)
+      return -1;
 
    MEMPHY_mv_csr(mp, addr);
    mp->storage[addr] = value;
@@ -109,7 +117,10 @@ int MEMPHY_seq_write(struct memphy_struct *mp, addr_t addr, BYTE value)
  */
 int MEMPHY_write(struct memphy_struct *mp, addr_t addr, BYTE data)
 {
-   if (mp == NULL)
+   if (mp == NULL || mp->storage == NULL)
+      return -1;
+
+   if (addr >= mp->maxsz)
       return -1;
 
    if (mp->rdmflg)
@@ -182,20 +193,31 @@ int MEMPHY_get_freefp(struct memphy_struct *mp, addr_t *retfpn)
 
 int MEMPHY_dump(struct memphy_struct *mp)
 {
-  /*TODO dump memphy contnt mp->storage
-   *     for tracing the memory content
-   */
+   if (!mp || !mp->storage)
+      return -1;
+
+   for (addr_t i = 0; i < mp->maxsz; i++) {
+      if (mp->storage[i] != 0)
+         printf("%lu: %02x\n", (unsigned long)i, (unsigned char)mp->storage[i]);
+   }
+
    return 0;
 }
 
 int MEMPHY_put_freefp(struct memphy_struct *mp, addr_t fpn)
 {
+   if (mp == NULL)
+      return -1;
+
    struct framephy_struct *fp = mp->free_fp_list;
    struct framephy_struct *newnode = malloc(sizeof(struct framephy_struct));
+   if (newnode == NULL)
+      return -1;
 
    /* Create new node with value fpn */
    newnode->fpn = fpn;
    newnode->fp_next = fp;
+   newnode->owner = NULL;
    mp->free_fp_list = newnode;
 
    return 0;
